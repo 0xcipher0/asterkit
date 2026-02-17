@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsup src/index.ts --dts --format esm --clean",
     "test": "bun test",
-    "test:integration": "bun test src/agent.integration.test.ts"
+    "test:integration": "bun test src/*.integration.test.ts"
   },
   "exports": {
     ".": {

@@ -2,7 +2,7 @@ import type { TypedDataDomain } from "viem";
 
 export const DEFAULT_HOST = "https://fapi.asterdex.com";
 export const DEFAULT_SIGNATURE_CHAIN_ID = 56;
-export const DEFAULT_AGENT_NAME = "2dkkd0001";
+export const DEFAULT_AGENT_NAME = "AsterKit";
 export const DEFAULT_ASTER_CHAIN = "Mainnet";
 
 export const EIP712_DOMAIN_MAIN: TypedDataDomain = {

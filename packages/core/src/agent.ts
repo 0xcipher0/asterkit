@@ -9,6 +9,7 @@ import {
   buildQueryString,
   getNonce,
   signEIP712Main,
+  signEIP712Message,
 } from "./utils";
 
 export type ApproveAgentParams = {
@@ -49,6 +50,34 @@ export type ApproveAgentResult<T = unknown> = {
   data: T;
   url: string;
   params: SignedApproveAgentParams;
+};
+
+export type GetAgentsParams = {
+  asterChain: string;
+  user: string;
+  signer: string;
+  nonce: number;
+};
+
+export type GetAgentsOptions = {
+  walletClient?: WalletClient;
+  host?: string;
+  asterChain?: string;
+  user: string;
+  signer: string;
+  nonce?: number;
+  signature?: Hex;
+};
+
+export type SignedGetAgentsParams = GetAgentsParams & {
+  signature: Hex;
+};
+
+export type GetAgentsResult<T = unknown> = {
+  status: number;
+  data: T;
+  url: string;
+  params: SignedGetAgentsParams;
 };
 
 export class AsterRequestError extends Error {
@@ -143,8 +172,73 @@ export async function approveAgent<T = unknown>({
   };
 }
 
-export async function getAgent(): Promise<never> {
-  throw new Error("getAgent is not implemented yet.");
+export async function getAgents<T = unknown>({
+  walletClient,
+  host,
+  asterChain,
+  user,
+  signer,
+  nonce,
+  signature,
+}: GetAgentsOptions): Promise<GetAgentsResult<T>> {
+  const params: GetAgentsParams = {
+    asterChain: asterChain ?? DEFAULT_ASTER_CHAIN,
+    user,
+    signer,
+    nonce: nonce ?? getNonce(),
+  };
+
+  const queryString = buildQueryString(params);
+  let finalSignature = signature;
+  if (!finalSignature) {
+    if (!walletClient) {
+      throw new Error(
+        "getAgents requires either signature or walletClient to sign the query."
+      );
+    }
+    if (!walletClient.account?.address) {
+      throw new Error(
+        "walletClient.account is required. Create walletClient with an account."
+      );
+    }
+    if (walletClient.account.address.toLowerCase() !== signer.toLowerCase()) {
+      throw new Error("signer must match walletClient.account.address.");
+    }
+    finalSignature = await signEIP712Message({
+      walletClient,
+      message: queryString,
+    });
+  }
+
+  const url = `${host ?? DEFAULT_HOST}/fapi/v3/agent?${queryString}&signature=${finalSignature}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "AsterKit/1.0",
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new AsterRequestError(response.status, url, data);
+  }
+
+  return {
+    status: response.status,
+    data: data as T,
+    url,
+    params: {
+      ...params,
+      signature: finalSignature,
+    },
+  };
+}
+
+export async function getAgent<T = unknown>(
+  options: GetAgentsOptions
+): Promise<GetAgentsResult<T>> {
+  return getAgents<T>(options);
 }
 
 export async function updateAgent(): Promise<never> {
