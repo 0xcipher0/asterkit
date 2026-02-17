@@ -5,7 +5,12 @@ import {
   DEFAULT_SIGNATURE_CHAIN_ID,
 } from "./config";
 import { AsterRequestError } from "./agent";
-import { buildQueryString, getNonce, signEIP712Main } from "./utils";
+import {
+  buildQueryString,
+  getNonce,
+  signEIP712Main,
+  signEIP712Message,
+} from "./utils";
 
 export type ApproveBuilderParams = {
   builder: string;
@@ -37,6 +42,34 @@ export type ApproveBuilderResult<T = unknown> = {
   data: T;
   url: string;
   params: SignedApproveBuilderParams;
+};
+
+export type GetBuildersParams = {
+  asterChain: string;
+  user: string;
+  signer: string;
+  nonce: number;
+};
+
+export type SignedGetBuildersParams = GetBuildersParams & {
+  signature: Hex;
+};
+
+export type GetBuildersOptions = {
+  walletClient?: WalletClient;
+  host?: string;
+  asterChain?: string;
+  user: string;
+  signer: string;
+  nonce?: number;
+  signature?: Hex;
+};
+
+export type GetBuildersResult<T = unknown> = {
+  status: number;
+  data: T;
+  url: string;
+  params: SignedGetBuildersParams;
 };
 
 export async function approveBuilder<T = unknown>({
@@ -98,5 +131,68 @@ export async function approveBuilder<T = unknown>({
     data: data as T,
     url,
     params: signedParams,
+  };
+}
+
+export async function getBuilders<T = unknown>({
+  walletClient,
+  host,
+  asterChain,
+  user,
+  signer,
+  nonce,
+  signature,
+}: GetBuildersOptions): Promise<GetBuildersResult<T>> {
+  const params: GetBuildersParams = {
+    asterChain: asterChain ?? DEFAULT_ASTER_CHAIN,
+    user,
+    signer,
+    nonce: nonce ?? getNonce(),
+  };
+
+  const queryString = buildQueryString(params);
+  let finalSignature = signature;
+  if (!finalSignature) {
+    if (!walletClient) {
+      throw new Error(
+        "getBuilders requires either signature or walletClient to sign the query."
+      );
+    }
+    if (!walletClient.account?.address) {
+      throw new Error(
+        "walletClient.account is required. Create walletClient with an account."
+      );
+    }
+    if (walletClient.account.address.toLowerCase() !== signer.toLowerCase()) {
+      throw new Error("signer must match walletClient.account.address.");
+    }
+    finalSignature = await signEIP712Message({
+      walletClient,
+      message: queryString,
+    });
+  }
+
+  const url = `${host ?? DEFAULT_HOST}/fapi/v3/builder?${queryString}&signature=${finalSignature}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "AsterKit/1.0",
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new AsterRequestError(response.status, url, data);
+  }
+
+  return {
+    status: response.status,
+    data: data as T,
+    url,
+    params: {
+      ...params,
+      signature: finalSignature,
+    },
   };
 }

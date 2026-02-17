@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { WalletClient } from "viem";
 import { AsterRequestError } from "./agent";
-import { approveBuilder } from "./builder";
+import { approveBuilder, getBuilders } from "./builder";
 
 function createWalletClientMock(signature: `0x${string}`): WalletClient {
   return {
@@ -102,5 +102,119 @@ describe("approveBuilder", () => {
         builderName: "ivan3",
       })
     ).rejects.toThrow("walletClient.account is required");
+  });
+});
+
+describe("getBuilders", () => {
+  it("signs query and sends GET /fapi/v3/builder with signature", async () => {
+    const walletClient = createWalletClientMock("0xabc123");
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await getBuilders({
+        walletClient,
+        user: "0x1111111111111111111111111111111111111111",
+        signer: "0x1111111111111111111111111111111111111111",
+        nonce: 123456,
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.params.signature).toBe("0xabc123");
+      expect(result.params.asterChain).toBe("Mainnet");
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.init?.method).toBe("GET");
+      expect(
+        fetchCalls[0]?.url.startsWith("https://fapi.asterdex.com/fapi/v3/builder?")
+      ).toBe(true);
+      expect(fetchCalls[0]?.url).toContain(
+        "asterChain=Mainnet&user=0x1111111111111111111111111111111111111111&signer=0x1111111111111111111111111111111111111111&nonce=123456"
+      );
+      expect(fetchCalls[0]?.url).toContain("signature=0xabc123");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("allows precomputed signature without walletClient", async () => {
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    try {
+      const result = await getBuilders({
+        user: "0x9999999999999999999999999999999999999999",
+        signer: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        nonce: 1,
+        signature: "0xdef456",
+      });
+
+      expect(result.params.signature).toBe("0xdef456");
+      expect(result.params.nonce).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("throws when signer does not match wallet account", async () => {
+    const walletClient = createWalletClientMock("0xabc123");
+    await expect(
+      getBuilders({
+        walletClient,
+        user: "0x1111111111111111111111111111111111111111",
+        signer: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        nonce: 1,
+      })
+    ).rejects.toThrow("signer must match walletClient.account.address");
+  });
+
+  it("throws when neither signature nor walletClient is provided", async () => {
+    await expect(
+      getBuilders({
+        user: "0x1111111111111111111111111111111111111111",
+        signer: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        nonce: 1,
+      })
+    ).rejects.toThrow(
+      "getBuilders requires either signature or walletClient to sign the query"
+    );
+  });
+
+  it("throws AsterRequestError for non-2xx responses", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ code: 1001, msg: "bad request" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    try {
+      await expect(
+        getBuilders({
+          user: "0x1111111111111111111111111111111111111111",
+          signer: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          nonce: 1,
+          signature: "0xdeadbeef",
+        })
+      ).rejects.toMatchObject({
+        name: "AsterRequestError",
+        status: 400,
+        data: { code: 1001, msg: "bad request" },
+      } satisfies Partial<AsterRequestError>);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
