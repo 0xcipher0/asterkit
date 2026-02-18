@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createWalletClient, http, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { approveAgent, getAgents } from "./agent";
+import { approveAgent, getAgents, updateAgent } from "./agent";
 
 const hasMainKey = Boolean(process.env.MAIN_PRIVATE_KEY);
 const shouldRun = hasMainKey;
@@ -68,6 +68,39 @@ describe("agent integration", () => {
     expect(agentsResult.status).toBeLessThan(300);
     expect(agentsResult.params.user).toBe(mainAccount.address);
     expect(agentsResult.params.signer).toBe(signerAccount.address);
+  });
+
+  testIntegration("updateAgent calls real /fapi/v3/updateAgent", async () => {
+    const mainPrivateKey = process.env.MAIN_PRIVATE_KEY as Hex;
+    const mainAccount = privateKeyToAccount(mainPrivateKey);
+    const mainWalletClient = createWalletClient({
+      account: mainAccount,
+      transport: http("https://bsc-dataseed.binance.org"),
+    });
+
+    const signerPrivateKey = generatePrivateKey();
+    const signerAccount = privateKeyToAccount(signerPrivateKey);
+
+    const approveResult = await approveAgent({
+      walletClient: mainWalletClient,
+      agentAddress: signerAccount.address,
+      agentName: "AsterKit",
+    });
+
+    expect(approveResult.status).toBeGreaterThanOrEqual(200);
+    expect(approveResult.status).toBeLessThan(300);
+
+    const updateResult = await updateAgent({
+      walletClient: mainWalletClient,
+      agentAddress: signerAccount.address,
+      canSpotTrade: false,
+      canPerpTrade: true,
+      canWithdraw: false,
+    });
+
+    expect(updateResult.status).toBeGreaterThanOrEqual(200);
+    expect(updateResult.status).toBeLessThan(300);
+    expect(updateResult.params.signature.startsWith("0x")).toBe(true);
   });
 
   testMissingKey("is skipped when MAIN_PRIVATE_KEY is missing", () => {

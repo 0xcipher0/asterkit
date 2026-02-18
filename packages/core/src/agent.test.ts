@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { WalletClient } from "viem";
-import { AsterRequestError, getAgents } from "./agent";
+import { AsterRequestError, getAgents, updateAgent } from "./agent";
 
 function createWalletClientMock(signature: `0x${string}`): WalletClient {
   return {
@@ -135,5 +135,79 @@ describe("getAgents", () => {
     ).rejects.toThrow(
       "getAgents requires either signature or walletClient to sign the query"
     );
+  });
+});
+
+describe("updateAgent", () => {
+  it("signs and posts to /fapi/v3/updateAgent", async () => {
+    const walletClient = createWalletClientMock("0xaaa111");
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await updateAgent({
+        walletClient,
+        agentAddress: "0x3333333333333333333333333333333333333333",
+        canSpotTrade: false,
+        canPerpTrade: true,
+        canWithdraw: false,
+        nonce: 123,
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.params.signature).toBe("0xaaa111");
+      expect(result.params.signatureChainId).toBe(56);
+      expect(result.params.user).toBe(
+        "0x2222222222222222222222222222222222222222"
+      );
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.init?.method).toBe("POST");
+      expect(fetchCalls[0]?.url).toContain("/fapi/v3/updateAgent?");
+      expect(fetchCalls[0]?.url).toContain("agentAddress=0x3333333333333333333333333333333333333333");
+      expect(fetchCalls[0]?.url).toContain("canSpotTrade=false");
+      expect(fetchCalls[0]?.url).toContain("canPerpTrade=true");
+      expect(fetchCalls[0]?.url).toContain("canWithdraw=false");
+      expect(fetchCalls[0]?.url).toContain("signature=0xaaa111");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("throws AsterRequestError for non-2xx responses", async () => {
+    const walletClient = createWalletClientMock("0xbbb222");
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ code: 1001, msg: "bad request" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    try {
+      await expect(
+        updateAgent({
+          walletClient,
+          agentAddress: "0x3333333333333333333333333333333333333333",
+          canSpotTrade: false,
+          canPerpTrade: true,
+          canWithdraw: false,
+          nonce: 1,
+        })
+      ).rejects.toMatchObject({
+        name: "AsterRequestError",
+        status: 400,
+        data: { code: 1001, msg: "bad request" },
+      } satisfies Partial<AsterRequestError>);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
