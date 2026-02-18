@@ -44,6 +44,36 @@ export type ApproveBuilderResult<T = unknown> = {
   params: SignedApproveBuilderParams;
 };
 
+export type UpdateBuilderParams = {
+  builder: string;
+  maxFeeRate: string;
+  asterChain: string;
+  user: string;
+  nonce: number;
+};
+
+export type SignedUpdateBuilderParams = UpdateBuilderParams & {
+  signature: Hex;
+  signatureChainId: number;
+};
+
+export type UpdateBuilderOptions = {
+  walletClient: WalletClient;
+  host?: string;
+  signatureChainId?: number;
+  builder: string;
+  maxFeeRate: string;
+  asterChain?: string;
+  nonce?: number;
+};
+
+export type UpdateBuilderResult<T = unknown> = {
+  status: number;
+  data: T;
+  url: string;
+  params: SignedUpdateBuilderParams;
+};
+
 export type GetBuildersParams = {
   asterChain: string;
   user: string;
@@ -112,6 +142,66 @@ export async function approveBuilder<T = unknown>({
 
   const queryString = buildQueryString(signedParams);
   const url = `${host ?? DEFAULT_HOST}/fapi/v3/approveBuilder?${queryString}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "AsterKit/1.0",
+    },
+    body: "",
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new AsterRequestError(response.status, url, data);
+  }
+
+  return {
+    status: response.status,
+    data: data as T,
+    url,
+    params: signedParams,
+  };
+}
+
+export async function updateBuilder<T = unknown>({
+  walletClient,
+  host,
+  signatureChainId,
+  builder,
+  maxFeeRate,
+  asterChain,
+  nonce,
+}: UpdateBuilderOptions): Promise<UpdateBuilderResult<T>> {
+  const walletUser = walletClient.account?.address;
+  if (!walletUser) {
+    throw new Error(
+      "walletClient.account is required. Create walletClient with an account."
+    );
+  }
+
+  const params: UpdateBuilderParams = {
+    builder,
+    maxFeeRate,
+    asterChain: asterChain ?? DEFAULT_ASTER_CHAIN,
+    user: walletUser,
+    nonce: nonce ?? getNonce(),
+  };
+
+  const signature = await signEIP712Main({
+    walletClient,
+    params,
+    primaryType: "UpdateBuilder",
+  });
+
+  const signedParams: SignedUpdateBuilderParams = {
+    ...params,
+    signature,
+    signatureChainId: signatureChainId ?? DEFAULT_SIGNATURE_CHAIN_ID,
+  };
+
+  const queryString = buildQueryString(signedParams);
+  const url = `${host ?? DEFAULT_HOST}/fapi/v3/updateBuilder?${queryString}`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
