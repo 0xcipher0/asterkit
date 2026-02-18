@@ -235,12 +235,6 @@ export async function getAgents<T = unknown>({
   };
 }
 
-export async function getAgent<T = unknown>(
-  options: GetAgentsOptions
-): Promise<GetAgentsResult<T>> {
-  return getAgents<T>(options);
-}
-
 export async function updateAgent(): Promise<never> {
   throw new Error("updateAgent is not implemented yet.");
 }

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { WalletClient } from "viem";
 import { AsterRequestError } from "./agent";
-import { approveBuilder, getBuilders, updateBuilder } from "./builder";
+import {
+  approveBuilder,
+  deleteBuilder,
+  getBuilders,
+  updateBuilder,
+} from "./builder";
 
 function createWalletClientMock(signature: `0x${string}`): WalletClient {
   return {
@@ -217,6 +222,19 @@ describe("getBuilders", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("throws when walletClient.account is missing", async () => {
+    const walletClient = {
+      signTypedData: async () => "0x123",
+    } as unknown as WalletClient;
+
+    await expect(
+      deleteBuilder({
+        walletClient,
+        builder: "0xc2af13e1B1de3A015252A115309A0F9DEEDCFa0A",
+      })
+    ).rejects.toThrow("walletClient.account is required");
+  });
 });
 
 describe("updateBuilder", () => {
@@ -280,6 +298,73 @@ describe("updateBuilder", () => {
           walletClient,
           builder: "0xc2af13e1B1de3A015252A115309A0F9DEEDCFa0A",
           maxFeeRate: "0.00002",
+          nonce: 1,
+        })
+      ).rejects.toMatchObject({
+        name: "AsterRequestError",
+        status: 400,
+        data: { code: 1001, msg: "bad request" },
+      } satisfies Partial<AsterRequestError>);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("deleteBuilder", () => {
+  it("signs and sends DELETE /fapi/v3/builder", async () => {
+    const walletClient = createWalletClientMock("0xabc777");
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await deleteBuilder({
+        walletClient,
+        builder: "0xc2af13e1B1de3A015252A115309A0F9DEEDCFa0A",
+        nonce: 333,
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.params.signature).toBe("0xabc777");
+      expect(result.params.signatureChainId).toBe(56);
+      expect(result.params.user).toBe(
+        "0x1111111111111111111111111111111111111111"
+      );
+      expect(result.params.asterChain).toBe("Mainnet");
+
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.init?.method).toBe("DELETE");
+      expect(fetchCalls[0]?.url).toContain("/fapi/v3/builder?");
+      expect(fetchCalls[0]?.url).toContain("nonce=333");
+      expect(fetchCalls[0]?.url).toContain("signature=0xabc777");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("throws AsterRequestError for non-2xx responses", async () => {
+    const walletClient = createWalletClientMock("0xdef777");
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ code: 1001, msg: "bad request" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    try {
+      await expect(
+        deleteBuilder({
+          walletClient,
+          builder: "0xc2af13e1B1de3A015252A115309A0F9DEEDCFa0A",
           nonce: 1,
         })
       ).rejects.toMatchObject({

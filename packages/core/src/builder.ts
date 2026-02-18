@@ -74,6 +74,34 @@ export type UpdateBuilderResult<T = unknown> = {
   params: SignedUpdateBuilderParams;
 };
 
+export type DeleteBuilderParams = {
+  builder: string;
+  asterChain: string;
+  user: string;
+  nonce: number;
+};
+
+export type SignedDeleteBuilderParams = DeleteBuilderParams & {
+  signature: Hex;
+  signatureChainId: number;
+};
+
+export type DeleteBuilderOptions = {
+  walletClient: WalletClient;
+  host?: string;
+  signatureChainId?: number;
+  builder: string;
+  asterChain?: string;
+  nonce?: number;
+};
+
+export type DeleteBuilderResult<T = unknown> = {
+  status: number;
+  data: T;
+  url: string;
+  params: SignedDeleteBuilderParams;
+};
+
 export type GetBuildersParams = {
   asterChain: string;
   user: string;
@@ -284,5 +312,62 @@ export async function getBuilders<T = unknown>({
       ...params,
       signature: finalSignature,
     },
+  };
+}
+
+export async function deleteBuilder<T = unknown>({
+  walletClient,
+  host,
+  signatureChainId,
+  builder,
+  asterChain,
+  nonce,
+}: DeleteBuilderOptions): Promise<DeleteBuilderResult<T>> {
+  const walletUser = walletClient.account?.address;
+  if (!walletUser) {
+    throw new Error(
+      "walletClient.account is required. Create walletClient with an account."
+    );
+  }
+
+  const params: DeleteBuilderParams = {
+    builder,
+    asterChain: asterChain ?? DEFAULT_ASTER_CHAIN,
+    user: walletUser,
+    nonce: nonce ?? getNonce(),
+  };
+
+  const signature = await signEIP712Main({
+    walletClient,
+    params,
+    primaryType: "DelBuilder",
+  });
+
+  const signedParams: SignedDeleteBuilderParams = {
+    ...params,
+    signature,
+    signatureChainId: signatureChainId ?? DEFAULT_SIGNATURE_CHAIN_ID,
+  };
+
+  const queryString = buildQueryString(signedParams);
+  const url = `${host ?? DEFAULT_HOST}/fapi/v3/builder?${queryString}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "AsterKit/1.0",
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new AsterRequestError(response.status, url, data);
+  }
+
+  return {
+    status: response.status,
+    data: data as T,
+    url,
+    params: signedParams,
   };
 }
