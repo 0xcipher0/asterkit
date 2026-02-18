@@ -88,6 +88,34 @@ export type UpdateAgentResult<T = unknown> = {
   params: SignedUpdateAgentParams;
 };
 
+export type DeleteAgentParams = {
+  agentAddress: string;
+  asterChain: string;
+  user: string;
+  nonce: number;
+};
+
+export type SignedDeleteAgentParams = DeleteAgentParams & {
+  signature: Hex;
+  signatureChainId: number;
+};
+
+export type DeleteAgentOptions = {
+  walletClient: WalletClient;
+  host?: string;
+  signatureChainId?: number;
+  agentAddress: string;
+  asterChain?: string;
+  nonce?: number;
+};
+
+export type DeleteAgentResult<T = unknown> = {
+  status: number;
+  data: T;
+  url: string;
+  params: SignedDeleteAgentParams;
+};
+
 export type GetAgentsParams = {
   asterChain: string;
   user: string;
@@ -339,6 +367,59 @@ export async function updateAgent<T = unknown>({
   };
 }
 
-export async function deleteAgent(): Promise<never> {
-  throw new Error("deleteAgent is not implemented yet.");
+export async function deleteAgent<T = unknown>({
+  walletClient,
+  host,
+  signatureChainId,
+  agentAddress,
+  asterChain,
+  nonce,
+}: DeleteAgentOptions): Promise<DeleteAgentResult<T>> {
+  const walletUser = walletClient.account?.address;
+  if (!walletUser) {
+    throw new Error(
+      "walletClient.account is required. Create walletClient with an account."
+    );
+  }
+
+  const params: DeleteAgentParams = {
+    agentAddress,
+    asterChain: asterChain ?? DEFAULT_ASTER_CHAIN,
+    user: walletUser,
+    nonce: nonce ?? getNonce(),
+  };
+
+  const signature = await signEIP712Main({
+    walletClient,
+    params,
+    primaryType: "DelAgent",
+  });
+
+  const signedParams: SignedDeleteAgentParams = {
+    ...params,
+    signature,
+    signatureChainId: signatureChainId ?? DEFAULT_SIGNATURE_CHAIN_ID,
+  };
+
+  const queryString = buildQueryString(signedParams);
+  const url = `${host ?? DEFAULT_HOST}/fapi/v3/agent?${queryString}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "AsterKit/1.0",
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new AsterRequestError(response.status, url, data);
+  }
+
+  return {
+    status: response.status,
+    data: data as T,
+    url,
+    params: signedParams,
+  };
 }

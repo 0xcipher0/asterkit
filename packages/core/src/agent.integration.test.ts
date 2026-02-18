@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createWalletClient, http, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { approveAgent, getAgents, updateAgent } from "./agent";
+import { approveAgent, deleteAgent, getAgents, updateAgent } from "./agent";
 
 const hasMainKey = Boolean(process.env.MAIN_PRIVATE_KEY);
 const shouldRun = hasMainKey;
@@ -101,6 +101,36 @@ describe("agent integration", () => {
     expect(updateResult.status).toBeGreaterThanOrEqual(200);
     expect(updateResult.status).toBeLessThan(300);
     expect(updateResult.params.signature.startsWith("0x")).toBe(true);
+  });
+
+  testIntegration("deleteAgent calls real /fapi/v3/agent", async () => {
+    const mainPrivateKey = process.env.MAIN_PRIVATE_KEY as Hex;
+    const mainAccount = privateKeyToAccount(mainPrivateKey);
+    const mainWalletClient = createWalletClient({
+      account: mainAccount,
+      transport: http("https://bsc-dataseed.binance.org"),
+    });
+
+    const signerPrivateKey = generatePrivateKey();
+    const signerAccount = privateKeyToAccount(signerPrivateKey);
+
+    const approveResult = await approveAgent({
+      walletClient: mainWalletClient,
+      agentAddress: signerAccount.address,
+      agentName: "AsterKit",
+    });
+
+    expect(approveResult.status).toBeGreaterThanOrEqual(200);
+    expect(approveResult.status).toBeLessThan(300);
+
+    const deleteResult = await deleteAgent({
+      walletClient: mainWalletClient,
+      agentAddress: signerAccount.address,
+    });
+
+    expect(deleteResult.status).toBeGreaterThanOrEqual(200);
+    expect(deleteResult.status).toBeLessThan(300);
+    expect(deleteResult.params.signature.startsWith("0x")).toBe(true);
   });
 
   testMissingKey("is skipped when MAIN_PRIVATE_KEY is missing", () => {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { WalletClient } from "viem";
-import { AsterRequestError, getAgents, updateAgent } from "./agent";
+import {
+  AsterRequestError,
+  deleteAgent,
+  getAgents,
+  updateAgent,
+} from "./agent";
 
 function createWalletClientMock(signature: `0x${string}`): WalletClient {
   return {
@@ -209,5 +214,84 @@ describe("updateAgent", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("deleteAgent", () => {
+  it("signs and sends DELETE /fapi/v3/agent", async () => {
+    const walletClient = createWalletClientMock("0xccc333");
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await deleteAgent({
+        walletClient,
+        agentAddress: "0x3333333333333333333333333333333333333333",
+        nonce: 999,
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.params.signature).toBe("0xccc333");
+      expect(result.params.signatureChainId).toBe(56);
+      expect(result.params.user).toBe(
+        "0x2222222222222222222222222222222222222222"
+      );
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.init?.method).toBe("DELETE");
+      expect(fetchCalls[0]?.url).toContain("/fapi/v3/agent?");
+      expect(fetchCalls[0]?.url).toContain("agentAddress=0x3333333333333333333333333333333333333333");
+      expect(fetchCalls[0]?.url).toContain("nonce=999");
+      expect(fetchCalls[0]?.url).toContain("signature=0xccc333");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("throws AsterRequestError for non-2xx responses", async () => {
+    const walletClient = createWalletClientMock("0xddd444");
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ code: 1001, msg: "bad request" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    try {
+      await expect(
+        deleteAgent({
+          walletClient,
+          agentAddress: "0x3333333333333333333333333333333333333333",
+          nonce: 1,
+        })
+      ).rejects.toMatchObject({
+        name: "AsterRequestError",
+        status: 400,
+        data: { code: 1001, msg: "bad request" },
+      } satisfies Partial<AsterRequestError>);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("throws when walletClient.account is missing", async () => {
+    const walletClient = {
+      signTypedData: async () => "0x123",
+    } as unknown as WalletClient;
+
+    await expect(
+      deleteAgent({
+        walletClient,
+        agentAddress: "0x3333333333333333333333333333333333333333",
+      })
+    ).rejects.toThrow("walletClient.account is required");
   });
 });
