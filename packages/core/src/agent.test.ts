@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { WalletClient } from "viem";
 import {
   AsterRequestError,
+  approveAgent,
   deleteAgent,
   getAgents,
   updateAgent,
@@ -13,6 +14,98 @@ function createWalletClientMock(signature: `0x${string}`): WalletClient {
     signTypedData: async () => signature,
   } as unknown as WalletClient;
 }
+
+describe("approveAgent", () => {
+  it("does not include ipWhitelist when omitted", async () => {
+    const walletClient = createWalletClientMock("0xaaa000");
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await approveAgent({
+        walletClient,
+        agentAddress: "0x3333333333333333333333333333333333333333",
+        nonce: 12,
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.params.ipWhitelist).toBeUndefined();
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.url).toContain("/fapi/v3/approveAgent?");
+      expect(fetchCalls[0]?.url).not.toContain("ipWhitelist=");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not include ipWhitelist when blank", async () => {
+    const walletClient = createWalletClientMock("0xaaa111");
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await approveAgent({
+        walletClient,
+        agentAddress: "0x3333333333333333333333333333333333333333",
+        ipWhitelist: "   ",
+        nonce: 13,
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.params.ipWhitelist).toBeUndefined();
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.url).not.toContain("ipWhitelist=");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("includes ipWhitelist when provided", async () => {
+    const walletClient = createWalletClientMock("0xaaa222");
+    const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await approveAgent({
+        walletClient,
+        agentAddress: "0x3333333333333333333333333333333333333333",
+        ipWhitelist: "1.2.3.4",
+        nonce: 14,
+      });
+
+      expect(result.status).toBe(200);
+      expect(result.params.ipWhitelist).toBe("1.2.3.4");
+      expect(fetchCalls).toHaveLength(1);
+      expect(fetchCalls[0]?.url).toContain("ipWhitelist=1.2.3.4");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
 
 describe("getAgents", () => {
   it("signs query and sends GET /fapi/v3/agent with signature", async () => {

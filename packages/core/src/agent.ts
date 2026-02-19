@@ -195,8 +195,9 @@ export async function approveAgent<T = unknown>({
     user: walletUser,
     nonce: nonce ?? getNonce(),
   };
-  if (ipWhitelist !== undefined && ipWhitelist !== null) {
-    params.ipWhitelist = ipWhitelist;
+  const normalizedIpWhitelist = ipWhitelist?.trim();
+  if (normalizedIpWhitelist) {
+    params.ipWhitelist = normalizedIpWhitelist;
   }
 
   const signature = await signEIP712Main({
